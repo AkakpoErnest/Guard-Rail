@@ -39,6 +39,22 @@ export interface PaymentOutcome {
 }
 
 /**
+ * Thrown when an agentPay transaction mined successfully but its receipt
+ * carried no PaymentAttempt event — an unexpected contract-level anomaly,
+ * distinct from a chain/RPC failure (viem throws its own error classes for
+ * those, e.g. failing to submit or failing to mine at all). Callers such as
+ * the chat API route should catch this specifically to report "something
+ * went wrong on our end" rather than confusing it with "couldn't reach the
+ * chain" or a policy denial.
+ */
+export class PaymentAttemptNotFoundError extends Error {
+  constructor(txHash: Hash) {
+    super(`agentPay transaction ${txHash} mined but emitted no PaymentAttempt event`);
+    this.name = "PaymentAttemptNotFoundError";
+  }
+}
+
+/**
  * Scans a transaction's logs for AgentVault's PaymentAttempt event and
  * decodes it. AgentVault.agentPay never reverts on a policy denial (see
  * contracts/AgentVault.sol NatSpec), so this event — not tx success — is the
@@ -90,9 +106,7 @@ export async function payViaAgent(
   const outcome = parsePaymentAttempt(receipt.logs);
 
   if (!outcome) {
-    throw new Error(
-      `agentPay transaction ${txHash} mined but emitted no PaymentAttempt event`
-    );
+    throw new PaymentAttemptNotFoundError(txHash);
   }
 
   return { ...outcome, txHash };
