@@ -1,4 +1,4 @@
-import { isAddress, type Address } from "viem";
+import { getAddress, isAddress, type Address } from "viem";
 
 export interface AllowlistEntry {
   label: string;
@@ -10,7 +10,12 @@ export interface AllowlistEntry {
 // "Open items"). The addresses themselves ARE the onchain allowlist (set
 // via setPolicy elsewhere); this file just maps friendly names to them for
 // the chat agent and the UI.
-export const ALLOWLIST_ENTRIES: AllowlistEntry[] = [
+//
+// Addresses are run through getAddress() so they're always stored with a
+// valid EIP-55 checksum, regardless of how they were pasted in below. This
+// matters because viem's contract-write helpers (used by setPolicy in the
+// policy panel) reject non-checksummed mixed-case addresses at encode time.
+const RAW_ALLOWLIST_ENTRIES: AllowlistEntry[] = [
   {
     label: "Airtime vendor",
     address: "0x8a91C3B9a0D4F5E6C7A8B9D0E1F2A3B4C5D6E7F0",
@@ -20,6 +25,10 @@ export const ALLOWLIST_ENTRIES: AllowlistEntry[] = [
     address: "0x2d70A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F1",
   },
 ];
+
+export const ALLOWLIST_ENTRIES: AllowlistEntry[] = RAW_ALLOWLIST_ENTRIES.map(
+  (entry) => ({ ...entry, address: getAddress(entry.address) })
+);
 
 export interface ResolvedRecipient {
   address: string;
