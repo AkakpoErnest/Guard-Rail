@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import { isAddress, type Address } from "viem";
 
 export interface AllowlistEntry {
   label: string;
@@ -26,20 +26,11 @@ export interface ResolvedRecipient {
   label?: string;
 }
 
-// A loose "looks like a hex address" check (0x + hex digits) used only as
-// the final fallback, to decide whether unrecognized input should be
-// echoed back as a raw address versus rejected as non-address text. This is
-// deliberately more lenient than viem's `isAddress` (which requires exactly
-// 40 hex chars plus valid EIP-55 checksum casing when strict): callers who
-// need a hard validity guarantee on the resolved address should still run
-// it through `isAddress` themselves before using it onchain.
-const HEX_ADDRESS_PATTERN = /^0x[0-9a-fA-F]+$/;
-
 /**
  * Resolves free-text (as it might appear in a chat message or a UI form) to
  * a recipient. Tries, in order: exact label match (case-insensitive), known
  * allowlist address match, then falls back to treating the input as a raw
- * address if it looks like one. Returns null if none apply.
+ * address if it's a syntactically valid address. Returns null if none apply.
  */
 export function resolveRecipient(input: string): ResolvedRecipient | null {
   const trimmed = input.trim();
@@ -54,7 +45,7 @@ export function resolveRecipient(input: string): ResolvedRecipient | null {
   );
   if (byAddress) return { address: byAddress.address, label: byAddress.label };
 
-  if (HEX_ADDRESS_PATTERN.test(trimmed)) return { address: trimmed };
+  if (isAddress(trimmed)) return { address: trimmed };
 
   return null;
 }

@@ -15,7 +15,7 @@ describe("resolveRecipient", () => {
   });
 
   it("resolves an unrecognized address by returning it verbatim with no label", () => {
-    const unknown = "0x000000000000000000000000000000000000dE";
+    const unknown = "0x00000000000000000000000000000000000000de";
     const entry = resolveRecipient(unknown);
     expect(entry?.address).toBe(unknown);
     expect(entry?.label).toBeUndefined();
