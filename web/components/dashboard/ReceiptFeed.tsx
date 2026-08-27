@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useWatchContractEvent, usePublicClient } from "wagmi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useWatchContractEvent,
+  usePublicClient,
+  type UseWatchContractEventParameters,
+} from "wagmi";
 import { formatUnits, getAbiItem, type Address } from "viem";
 import { agentVaultAbi } from "@/lib/abi";
 import { AGENT_VAULT_ADDRESS } from "@/lib/contracts";
@@ -46,6 +50,12 @@ function sortNewestFirst(a: Receipt, b: Receipt) {
   return b.logIndex - a.logIndex;
 }
 
+type PaymentAttemptLogs = Parameters<
+  NonNullable<
+    UseWatchContractEventParameters<typeof agentVaultAbi, "PaymentAttempt">["onLogs"]
+  >
+>[0];
+
 function resolveRecipientLabel(address: string): string {
   const entry = ALLOWLIST_ENTRIES.find(
     (e) => e.address.toLowerCase() === address.toLowerCase()
@@ -63,7 +73,10 @@ export function ReceiptFeed() {
   // mutable ref) so this stays correct under React Strict Mode's dev-time
   // double-invocation of state updaters, and so a live event that arrives
   // mid-backfill can't be double-counted regardless of invocation order.
-  function addReceipts(incoming: Receipt[]) {
+  // useCallback'd with a stable identity (only touches the stable
+  // setReceipts) so it can safely be a dependency of the live-subscription
+  // handler below without changing on every render.
+  const addReceipts = useCallback((incoming: Receipt[]) => {
     if (incoming.length === 0) return;
     setReceipts((prev) => {
       const existingKeys = new Set(prev.map(receiptKey));
@@ -71,7 +84,7 @@ export function ReceiptFeed() {
       if (toAdd.length === 0) return prev;
       return [...prev, ...toAdd].sort(sortNewestFirst).slice(0, MAX_RECEIPTS);
     });
-  }
+  }, []);
 
   // Backfill history on mount. useWatchContractEvent (below) only sees new
   // events from the moment it subscribes, so without this the feed would
@@ -122,12 +135,17 @@ export function ReceiptFeed() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicClient]);
 
-  // Live subscription for new events from here on out.
-  useWatchContractEvent({
-    address: AGENT_VAULT_ADDRESS,
-    abi: agentVaultAbi,
-    eventName: "PaymentAttempt",
-    onLogs(logs) {
+  // Live subscription for new events from here on out. onLogs is
+  // useCallback'd (depending only on the already-stable addReceipts) rather
+  // than defined inline: useWatchContractEvent includes onLogs in its
+  // internal effect's dependency array, so a fresh function identity on
+  // every render — which every processed event would otherwise trigger, via
+  // the resulting setReceipts/re-render — tears down and rebuilds the whole
+  // polling subscription (fresh filter, lost fromBlock continuity) instead
+  // of reusing it. That adds a full extra polling interval of latency right
+  // when back-to-back events are exactly what a demo needs to show promptly.
+  const handleLogs = useCallback(
+    (logs: PaymentAttemptLogs) => {
       const parsed: Receipt[] = logs.map((log) => ({
         approved: log.args.approved ?? false,
         to: log.args.to ?? ("0x0000000000000000000000000000000000000000" as Address),
@@ -139,6 +157,14 @@ export function ReceiptFeed() {
       }));
       addReceipts(parsed);
     },
+    [addReceipts]
+  );
+
+  useWatchContractEvent({
+    address: AGENT_VAULT_ADDRESS,
+    abi: agentVaultAbi,
+    eventName: "PaymentAttempt",
+    onLogs: handleLogs,
   });
 
   const rows = useMemo(() => receipts, [receipts]);
