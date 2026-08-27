@@ -1,6 +1,148 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+import { useWatchContractEvent, usePublicClient } from "wagmi";
+import { formatUnits, getAbiItem, type Address } from "viem";
+import { agentVaultAbi } from "@/lib/abi";
+import { AGENT_VAULT_ADDRESS } from "@/lib/contracts";
+import { ALLOWLIST_ENTRIES } from "@/lib/allowlist";
+import { MUSDT_DECIMALS } from "@/lib/format";
+
+// How far back to backfill on mount. The vault's real event history (from
+// live testing in earlier tasks) all falls well within this window; going
+// back further risks hitting the public HSK testnet RPC's block-range
+// limits (an `earliest`-to-`latest` query outright times out — confirmed
+// while building this component).
+const BACKFILL_BLOCK_WINDOW = 100_000n;
+
+// Cap how many backfilled rows we keep, newest-first.
+const MAX_RECEIPTS = 20;
+
+const paymentAttemptEvent = getAbiItem({
+  abi: agentVaultAbi,
+  name: "PaymentAttempt",
+});
+
+interface Receipt {
+  approved: boolean;
+  to: Address;
+  amount: bigint;
+  reason: string;
+  blockNumber: bigint;
+  txHash: string;
+  logIndex: number;
+}
+
+/** Dedup key: a given onchain log is uniquely identified by its tx hash +
+ * log index, whether we saw it via backfill or the live subscription. */
+function receiptKey(r: Pick<Receipt, "txHash" | "logIndex">) {
+  return `${r.txHash}:${r.logIndex}`;
+}
+
+function sortNewestFirst(a: Receipt, b: Receipt) {
+  if (a.blockNumber !== b.blockNumber) {
+    return a.blockNumber > b.blockNumber ? -1 : 1;
+  }
+  return b.logIndex - a.logIndex;
+}
+
+function resolveRecipientLabel(address: string): string {
+  const entry = ALLOWLIST_ENTRIES.find(
+    (e) => e.address.toLowerCase() === address.toLowerCase()
+  );
+  if (entry) return entry.label;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
 export function ReceiptFeed() {
+  const publicClient = usePublicClient();
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [isBackfilling, setIsBackfilling] = useState(true);
+
+  // Dedup purely as a function of committed `prev` state (no external
+  // mutable ref) so this stays correct under React Strict Mode's dev-time
+  // double-invocation of state updaters, and so a live event that arrives
+  // mid-backfill can't be double-counted regardless of invocation order.
+  function addReceipts(incoming: Receipt[]) {
+    if (incoming.length === 0) return;
+    setReceipts((prev) => {
+      const existingKeys = new Set(prev.map(receiptKey));
+      const toAdd = incoming.filter((r) => !existingKeys.has(receiptKey(r)));
+      if (toAdd.length === 0) return prev;
+      return [...prev, ...toAdd].sort(sortNewestFirst).slice(0, MAX_RECEIPTS);
+    });
+  }
+
+  // Backfill history on mount. useWatchContractEvent (below) only sees new
+  // events from the moment it subscribes, so without this the feed would
+  // start empty despite the vault already having real payment history.
+  useEffect(() => {
+    if (!publicClient) return;
+    let cancelled = false;
+
+    async function backfill() {
+      try {
+        const currentBlock = await publicClient!.getBlockNumber();
+        const fromBlock =
+          currentBlock > BACKFILL_BLOCK_WINDOW
+            ? currentBlock - BACKFILL_BLOCK_WINDOW
+            : 0n;
+
+        const logs = await publicClient!.getLogs({
+          address: AGENT_VAULT_ADDRESS,
+          event: paymentAttemptEvent,
+          fromBlock,
+          toBlock: "latest",
+        });
+
+        if (cancelled) return;
+
+        const parsed: Receipt[] = logs.map((log) => ({
+          approved: log.args.approved ?? false,
+          to: log.args.to ?? ("0x0000000000000000000000000000000000000000" as Address),
+          amount: log.args.amount ?? 0n,
+          reason: log.args.reason ?? "",
+          blockNumber: log.blockNumber ?? 0n,
+          txHash: log.transactionHash ?? "",
+          logIndex: log.logIndex ?? 0,
+        }));
+
+        addReceipts(parsed);
+      } catch (err) {
+        console.error("ReceiptFeed: failed to backfill PaymentAttempt history", err);
+      } finally {
+        if (!cancelled) setIsBackfilling(false);
+      }
+    }
+
+    backfill();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicClient]);
+
+  // Live subscription for new events from here on out.
+  useWatchContractEvent({
+    address: AGENT_VAULT_ADDRESS,
+    abi: agentVaultAbi,
+    eventName: "PaymentAttempt",
+    onLogs(logs) {
+      const parsed: Receipt[] = logs.map((log) => ({
+        approved: log.args.approved ?? false,
+        to: log.args.to ?? ("0x0000000000000000000000000000000000000000" as Address),
+        amount: log.args.amount ?? 0n,
+        reason: log.args.reason ?? "",
+        blockNumber: log.blockNumber ?? 0n,
+        txHash: log.transactionHash ?? "",
+        logIndex: log.logIndex ?? 0,
+      }));
+      addReceipts(parsed);
+    },
+  });
+
+  const rows = useMemo(() => receipts, [receipts]);
+
   return (
     <section className="panel receipts">
       <div className="receipts-head">
@@ -25,33 +167,29 @@ export function ReceiptFeed() {
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>
-              <span className="result approved">✓ Approved</span>
-            </td>
-            <td>Airtime vendor</td>
-            <td>5.00 USDT</td>
-            <td>Within policy</td>
-            <td className="hash">#18,420,291</td>
-          </tr>
-          <tr>
-            <td>
-              <span className="result approved">✓ Approved</span>
-            </td>
-            <td>Airtime vendor</td>
-            <td>5.00 USDT</td>
-            <td>Within policy</td>
-            <td className="hash">#18,420,288</td>
-          </tr>
-          <tr>
-            <td>
-              <span className="result denied">× Denied</span>
-            </td>
-            <td>0xdead...beef</td>
-            <td>500.00 USDT</td>
-            <td>Exceeds daily cap</td>
-            <td className="hash">#18,420,293</td>
-          </tr>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={5} className="empty">
+                {isBackfilling
+                  ? "Loading receipt history..."
+                  : "No payment attempts yet."}
+              </td>
+            </tr>
+          ) : (
+            rows.map((r) => (
+              <tr key={receiptKey(r)}>
+                <td>
+                  <span className={`result ${r.approved ? "approved" : "denied"}`}>
+                    {r.approved ? "✓ Approved" : "× Denied"}
+                  </span>
+                </td>
+                <td>{resolveRecipientLabel(r.to)}</td>
+                <td>{formatUnits(r.amount, MUSDT_DECIMALS)} USDT</td>
+                <td>{r.reason}</td>
+                <td className="hash">#{r.blockNumber.toLocaleString()}</td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </section>
