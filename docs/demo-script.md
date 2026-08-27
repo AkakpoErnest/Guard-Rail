@@ -76,9 +76,21 @@ close to the new cap.
 
 ## The script
 
-Total run time target: ~3 minutes. Timing cues are guides, not a
-stopwatch requirement — pause for the chat/tx round-trips, they take a
-few real seconds each.
+Target: ~3:00, realistic budget up to ~3:45. Every payment message goes
+through a real round trip — Claude deciding to call the pay tool, then a
+real onchain transaction — which typically takes **10-15 seconds each**,
+not instant. The timings below already build that in; don't try to talk
+faster to compensate, just let the wait happen and narrate through it (see
+"If a response is slow" below). Two approved payments come before the
+denial deliberately — they establish that this is a normal, working
+payment flow, so the denial lands as a contrast, not a coincidence. It's
+still the moment the script is built around, not the opener.
+
+**If you're running behind by 1:30** (i.e. you haven't reached the denial
+yet), skip the second approved payment's narration — click "Pay 5 USDT"
+silently while saying "one more, quickly" — and move straight to the
+denial. Don't cut the denial, the revoke, or the dead-agent beat; those
+three are the actual demo. The two openers are the only compressible part.
 
 ### [0:00–0:20] Open on the dashboard
 
@@ -190,13 +202,29 @@ new receipt row: red "× Denied", reason **"policy inactive or revoked"**.
 
 ## Notes for the presenter
 
-- If a chat response is slow (Claude + an onchain wait can take several
-  real seconds), just talk through what's happening rather than standing
-  in silence — "it's submitting the transaction and waiting for it to
-  mine now."
-- If something visibly breaks mid-demo, the **"Reset demo"** button in the
-  chat panel clears the conversation (it does not touch onchain state or
-  the policy — only the chat transcript).
+- **If a chat response is slow** (Claude + an onchain wait can take
+  10-15 real seconds, sometimes more), that's normal — just talk through
+  what's happening rather than standing in silence: "it's submitting the
+  transaction and waiting for it to mine now."
+- **If a chat response genuinely fails, not just slow** — the app itself
+  will show a clear error bubble within 30 seconds either way (a built-in
+  timeout, so it can't hang forever). If that happens:
+  1. Say something like "looks like the network's having a moment" —
+     own it, don't apologize at length.
+  2. Click the same quick-action button again once. Most transient RPC/API
+     hiccups clear on retry.
+  3. If it fails a second time, don't keep retrying live. Fall back to a
+     **pre-recorded 60-90s screen capture of one full successful run**
+     (record this during rehearsal, keep it cued up and ready) and narrate
+     over it: "let me show you a run from earlier so we don't lose time"
+     — then continue the live talk track over the recording. Judges care
+     about seeing the mechanism work, not about zero hiccups on a public
+     testnet.
+- **"Reset demo"** in the chat panel clears the visible conversation and
+  cancels any stuck in-flight request — it does NOT touch onchain state
+  or the policy. Use it to recover the chat UI itself, not as a fix for a
+  failed transaction.
 - Rehearse this twice end-to-end before presenting, per the checklist
   above — timing and the exact wallet-confirmation clicks are the parts
-  most likely to trip you up live.
+  most likely to trip you up live. Record your second rehearsal; that
+  recording is your contingency clip for the fallback above.

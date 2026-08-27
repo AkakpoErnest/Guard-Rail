@@ -215,6 +215,30 @@ owner keeps the final say" actually true at the code level, not just in
 the pitch: the two keys live in different trust domains (browser wallet
 vs. server env var) and have disjoint capabilities on the contract.
 
+## Testing
+
+The contract has 10 Hardhat unit tests (`contracts/test/AgentVault.test.ts`,
+run via `npm test` at the repo root), covering: a payment within policy
+succeeding and transferring funds; each individual denial reason (over
+`maxPerTx`, over `dailyCap`, non-allowlisted recipient, after `revoke`,
+after `expiry`); two same-day payments correctly accumulating against the
+daily cap; the daily counter resetting on UTC-day rollover; owner-only
+access control on `setPolicy`/`revoke`; and a call from an address with no
+policy at all.
+
+What's deliberately out of scope for a hackathon timeline: no fuzz/invariant
+testing (e.g. property-based tests hammering `setPolicy`/`agentPay` with
+randomized inputs to look for edge cases the hand-written tests didn't
+think of), and no tests run against the actual deployed bytecode on HSK
+testnet (the deployed contract has instead been exercised through *real*
+manual end-to-end use during development — genuine approved payments,
+genuine denials, genuine revokes, all with real transaction hashes — which
+catches integration issues the unit tests can't, but isn't a repeatable
+automated suite). The web app (React components, the chat API route) has
+no automated test suite at all; it was verified through direct manual and
+scripted (headless-browser) checks against the live testnet deployment
+during development, not through a checked-in test file.
+
 ## Known limitations
 
 Being direct about what this is and isn't, since it was built under a
