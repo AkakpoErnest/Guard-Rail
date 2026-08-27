@@ -1,14 +1,7 @@
 "use client";
 
-import { formatUnits } from "viem";
 import { usePolicyData } from "@/lib/usePolicyData";
-
-const PLACEHOLDER = "—";
-
-function formatAmount(value: bigint | undefined): string {
-  if (value === undefined) return PLACEHOLDER;
-  return Number(formatUnits(value, 6)).toFixed(2);
-}
+import { PLACEHOLDER, formatAmount } from "@/lib/format";
 
 export function StatTiles() {
   const { policy, dailySpentToday, vaultBalance, isLoading } = usePolicyData();
