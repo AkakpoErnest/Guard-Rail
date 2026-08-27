@@ -58,8 +58,15 @@ export function PolicyPanel() {
 
   const applyBusy = isSetPolicyPending || isSetPolicyConfirming;
   const revokeBusy = isRevokePending || isRevokeConfirming;
+  // Apply and Revoke each track their own pending state independently (two
+  // separate useWriteContract instances), but they both write to the same
+  // policy — gate every action on BOTH being idle, not just its own, so a
+  // user can't fire setPolicy and revoke concurrently from the same wallet
+  // with no defined resolution order between the two transactions.
+  const anyBusy = applyBusy || revokeBusy;
 
   function applyPolicy() {
+    if (anyBusy) return;
     writeSetPolicy({
       address: AGENT_VAULT_ADDRESS,
       abi: agentVaultAbi,
@@ -75,6 +82,7 @@ export function PolicyPanel() {
   }
 
   function revokePolicy() {
+    if (anyBusy) return;
     writeRevoke({
       address: AGENT_VAULT_ADDRESS,
       abi: agentVaultAbi,
@@ -110,7 +118,7 @@ export function PolicyPanel() {
                 ? "Revoke agent access. This is one-way — reactivating requires applying a policy again."
                 : "Policy revoked. Click to apply the current settings and reactivate."
             }
-            disabled={!isConnected || (active ? revokeBusy : applyBusy)}
+            disabled={!isConnected || anyBusy}
             onClick={active ? revokePolicy : applyPolicy}
           >
             <i></i>
@@ -189,7 +197,7 @@ export function PolicyPanel() {
         <div style={{ marginTop: 17, display: "grid", gap: 8 }}>
           <button
             onClick={applyPolicy}
-            disabled={!isConnected || applyBusy}
+            disabled={!isConnected || anyBusy}
             style={{
               width: "100%",
               padding: "10px",
@@ -200,14 +208,14 @@ export function PolicyPanel() {
               fontWeight: 700,
               fontSize: 12,
               opacity: !isConnected ? 0.5 : 1,
-              cursor: !isConnected || applyBusy ? "not-allowed" : "pointer",
+              cursor: !isConnected || anyBusy ? "not-allowed" : "pointer",
             }}
           >
             {applyBusy ? "Applying..." : "Apply policy onchain"}
           </button>
           <button
             onClick={revokePolicy}
-            disabled={!isConnected || !active || revokeBusy}
+            disabled={!isConnected || !active || anyBusy}
             style={{
               width: "100%",
               padding: "9px",
@@ -219,7 +227,7 @@ export function PolicyPanel() {
               fontSize: 11,
               opacity: !isConnected || !active ? 0.5 : 1,
               cursor:
-                !isConnected || !active || revokeBusy
+                !isConnected || !active || anyBusy
                   ? "not-allowed"
                   : "pointer",
             }}
