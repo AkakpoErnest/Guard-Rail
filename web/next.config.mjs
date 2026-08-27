@@ -14,6 +14,16 @@ const nextConfig = {
         resourceRegExp: /^@x402\//,
       })
     );
+    // Two more well-known, benign optional-dependency warnings from
+    // wagmi's connector stack (documented in RainbowKit's own Next.js
+    // setup guide): MetaMask SDK's React Native storage backend, and
+    // WalletConnect's pretty-printer for its pino logger. Neither is
+    // used in a browser context.
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      "@react-native-async-storage/async-storage": false,
+      "pino-pretty": false,
+    };
     return config;
   },
 };
