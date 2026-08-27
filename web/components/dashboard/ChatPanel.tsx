@@ -22,6 +22,12 @@ interface AgentChatResponse {
   payment: AgentPaymentResult | null;
 }
 
+// How long to wait for /api/agent before giving up and letting the
+// presenter retry. The Claude round-trip plus an onchain tx wait can
+// legitimately take several seconds, but an unbounded wait risks leaving
+// the UI stuck mid-demo with no way to recover short of a page reload.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 function nowTime(): string {
   return new Date().toLocaleTimeString([], {
     hour: "numeric",
@@ -30,12 +36,18 @@ function nowTime(): string {
   });
 }
 
+// No live timestamp here deliberately — this seeds useState's lazy
+// initializer, which React also runs during server rendering. Calling
+// nowTime() here would bake one timestamp string into the server-rendered
+// HTML and produce a different one on client hydration a moment later,
+// triggering a hydration mismatch. The real timestamp gets filled in by a
+// client-only effect once mounted (see the effect below).
 function initialMessages(): ChatMessage[] {
   return [
     {
       role: "agent",
       text: "Ready when you are. I can pay approved vendors using the policy on the left.",
-      time: nowTime(),
+      time: "",
     },
   ];
 }
@@ -62,15 +74,42 @@ export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [sending, setSending] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
+  // Synchronous guard against a double-submit landing before React commits
+  // the `sending` state update (e.g. a fast Enter-then-click, or key
+  // repeat) — `sending` state alone isn't checked until the next render,
+  // but this ref is checked and set immediately, in the same tick.
+  const sendingRef = useRef(false);
+  // Lets handleReset actually cancel an in-flight request, rather than just
+  // clearing messages while a stale response is still on its way to land
+  // on top of the freshly-reset conversation.
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Fill in the seed message's real timestamp once mounted client-side —
+  // see the comment on initialMessages() for why it starts blank.
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.map((m, i) => (i === 0 && m.time === "" ? { ...m, time: nowTime() } : m))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const el = messagesRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // Abort any in-flight request on unmount too, so a late response never
+  // tries to update state after this component is gone.
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   async function sendMessage(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || sending) return;
+    if (!trimmed || sendingRef.current) return;
+    sendingRef.current = true;
 
     setMessages((prev) => [
       ...prev,
@@ -79,11 +118,16 @@ export function ChatPanel() {
     setInput("");
     setSending(true);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: trimmed }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -108,23 +152,35 @@ export function ChatPanel() {
           meta: data.payment ? paymentMeta(data.payment) : undefined,
         },
       ]);
-    } catch {
+    } catch (err) {
+      const timedOut = err instanceof DOMException && err.name === "AbortError";
       setMessages((prev) => [
         ...prev,
         {
           role: "agent",
-          text: "Couldn't reach the agent — check your connection and try again.",
+          text: timedOut
+            ? "That took too long to come back — try again."
+            : "Couldn't reach the agent — check your connection and try again.",
           time: nowTime(),
         },
       ]);
     } finally {
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
+      sendingRef.current = false;
       setSending(false);
     }
   }
 
   function handleReset() {
-    setMessages(initialMessages());
+    abortControllerRef.current?.abort();
+    sendingRef.current = false;
+    setSending(false);
     setInput("");
+    // Build the fresh seed message with a real timestamp directly — this
+    // handler only runs client-side (it's a click handler), so no
+    // hydration concern the way the initial-render seed has.
+    setMessages(initialMessages().map((m, i) => (i === 0 ? { ...m, time: nowTime() } : m)));
   }
 
   return (
