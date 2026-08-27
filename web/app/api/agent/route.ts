@@ -16,6 +16,8 @@ The vault smart contract — not you — is the source of truth on spending limi
 
 The one thing you should check yourself before calling pay is whether you can identify the recipient at all — if the user's message doesn't give you enough to resolve a recipient, ask them to clarify instead of guessing.
 
+Call the pay tool at most once per message, even if the user asks for multiple payments in the same message. If they ask for more than one, make the first payment and tell them to ask again for the next one.
+
 Keep every reply short: 1-2 sentences, suitable for a chat bubble. No preamble, no markdown formatting.`;
 
 const PAY_TOOL: Anthropic.Tool = {
@@ -115,9 +117,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const toolUse = firstResponse.content.find(
+  const toolUseBlocks = firstResponse.content.filter(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
   );
+  const [toolUse, ...extraToolUses] = toolUseBlocks;
 
   // Claude answered without calling the tool — just relay its text.
   if (!toolUse || firstResponse.stop_reason !== "tool_use") {
@@ -142,7 +145,19 @@ export async function POST(request: Request) {
 
   const resolved = resolveRecipient(recipientInput);
 
-  if (!Number.isFinite(amountInput) || amountInput <= 0) {
+  // Bound the amount to a plain-decimal range parseUnits can handle. Very
+  // small (<1e-6) or very large (>=1e15) numbers render via JS's exponential
+  // notation (e.g. "1e-7"), which parseUnits rejects outright — better to
+  // catch that here with a clear "invalid amount" message than let it throw
+  // deep inside the payment attempt and get mislabeled as a chain failure.
+  const isPlainDecimalAmount =
+    Number.isFinite(amountInput) &&
+    amountInput > 0 &&
+    amountInput >= 0.000001 &&
+    amountInput < 1_000_000_000_000_000 &&
+    !/e/i.test(String(amountInput));
+
+  if (!isPlainDecimalAmount) {
     toolResultContent = JSON.stringify({
       ok: false,
       error: `Invalid amount "${String(input.amount)}" — no payment was attempted.`,
@@ -218,6 +233,20 @@ export async function POST(request: Request) {
         tool_use_id: toolUse.id,
         content: toolResultContent,
       },
+      // The system prompt instructs at most one pay call per message, but
+      // Claude's parallel tool use isn't schema-enforced — if it ever emits
+      // more than one anyway, every tool_use in the turn still needs a
+      // tool_result or the follow-up call errors outright. Only the first
+      // call is ever actually executed (see toolUse above); any extras are
+      // declined here without touching the chain.
+      ...extraToolUses.map((extra) => ({
+        type: "tool_result" as const,
+        tool_use_id: extra.id,
+        content: JSON.stringify({
+          ok: false,
+          error: "Only one payment can be attempted per message — not attempted.",
+        }),
+      })),
     ],
   });
 
