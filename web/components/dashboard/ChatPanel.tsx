@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useAccount } from "wagmi";
+
+function initials(address: string) {
+  // No name to derive initials from — the first two hex chars after 0x,
+  // at least tied to the real connected address rather than a fixed name.
+  return address.slice(2, 4).toUpperCase();
+}
 
 interface ChatMessage {
   role: "user" | "agent";
@@ -80,6 +87,7 @@ const QUICK_ACTIONS: { label: string; message: string }[] = [
 ];
 
 export function ChatPanel() {
+  const { address: ownerAddress, isConnected } = useAccount();
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [sending, setSending] = useState(false);
@@ -199,7 +207,7 @@ export function ChatPanel() {
         <div className="chat-agent">
           <div className="agent-avatar">✦</div>
           <div>
-            <strong>TopUp Agent</strong>
+            <strong>Payment agent</strong>
             <div className="online">● Online · policy enforced</div>
           </div>
         </div>
@@ -216,7 +224,9 @@ export function ChatPanel() {
             {m.role === "agent" ? (
               <div className="agent-avatar">✦</div>
             ) : (
-              <div className="avatar">EK</div>
+              <div className="avatar">
+                {isConnected && ownerAddress ? initials(ownerAddress) : "?"}
+              </div>
             )}
             <div>
               <div className="bubble">{m.text}</div>

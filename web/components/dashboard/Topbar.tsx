@@ -1,8 +1,17 @@
 "use client";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { usePolicyData } from "@/lib/usePolicyData";
 
 export function Topbar() {
+  const { policy, isLoading } = usePolicyData();
+  const agentCountLabel =
+    isLoading || !policy
+      ? "checking agent..."
+      : policy.active
+        ? "1 active agent"
+        : "0 active agents";
+
   return (
     <header className="topbar">
       <div>
@@ -19,7 +28,7 @@ export function Topbar() {
           <span>Connected</span>
         </div>
         <div className="agent-pill">
-          ⌁ <span>1 active agent</span>
+          ⌁ <span>{agentCountLabel}</span>
         </div>
         <ConnectButton />
       </div>

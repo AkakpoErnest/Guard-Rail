@@ -1,6 +1,17 @@
 "use client";
 
-import { useBlockNumber } from "wagmi";
+import { useAccount, useBlockNumber } from "wagmi";
+
+function truncate(address: string) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function initials(address: string) {
+  // No name to derive initials from — just the first two hex chars after
+  // 0x, which is at least tied to the real connected address rather than a
+  // fixed persona.
+  return address.slice(2, 4).toUpperCase();
+}
 
 export function Sidebar() {
   // Real, live block number instead of the mockup's frozen placeholder —
@@ -8,6 +19,7 @@ export function Sidebar() {
   // changing block numbers; a static fake one here would visibly contradict
   // it during the demo.
   const { data: blockNumber } = useBlockNumber({ watch: true });
+  const { address, isConnected } = useAccount();
 
   return (
     <aside className="sidebar">
@@ -50,10 +62,12 @@ export function Sidebar() {
           </div>
         </div>
         <div className="account">
-          <div className="avatar">EK</div>
+          <div className="avatar">{isConnected && address ? initials(address) : "?"}</div>
           <div>
-            <strong>Ernest K.</strong>
-            <small>Owner account</small>
+            <strong>
+              {isConnected && address ? truncate(address) : "Not connected"}
+            </strong>
+            <small>{isConnected ? "Owner account" : "Connect a wallet"}</small>
           </div>
         </div>
       </div>

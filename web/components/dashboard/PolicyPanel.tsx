@@ -131,7 +131,7 @@ export function PolicyPanel() {
           <div className="agent-info">
             <div className="agent-avatar">✦</div>
             <div>
-              <strong>TopUp Agent</strong>
+              <strong>Payment agent</strong>
               <small>{truncate(AGENT_ADDRESS)}</small>
             </div>
           </div>
