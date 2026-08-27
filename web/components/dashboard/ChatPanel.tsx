@@ -52,9 +52,19 @@ function initialMessages(): ChatMessage[] {
   ];
 }
 
+// The API route (web/app/api/agent/route.ts) uses this exact literal for
+// both a mined-but-unreadable transaction and an outright chain/RPC
+// submission failure — neither is a real policy decision from the vault,
+// so it must not be labeled "Policy violation" alongside genuine denial
+// reasons like "amount exceeds maxPerTx" or "policy inactive or revoked".
+const CHAIN_ERROR_REASON = "chain error";
+
 function paymentMeta(payment: AgentPaymentResult): string {
   if (payment.approved) {
     return `Confirmed onchain · ${payment.amount} USDT to ${payment.recipient}`;
+  }
+  if (payment.reason === CHAIN_ERROR_REASON) {
+    return "Couldn't reach the chain — not a policy decision, try again";
   }
   return `Policy violation · ${payment.reason}`;
 }

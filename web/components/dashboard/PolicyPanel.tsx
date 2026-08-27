@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { parseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import {
   useAccount,
   useWaitForTransactionReceipt,
@@ -10,6 +10,8 @@ import {
 import { agentVaultAbi } from "@/lib/abi";
 import { AGENT_ADDRESS, AGENT_VAULT_ADDRESS } from "@/lib/contracts";
 import { ALLOWLIST_ENTRIES } from "@/lib/allowlist";
+import { usePolicyData } from "@/lib/usePolicyData";
+import { MUSDT_DECIMALS } from "@/lib/format";
 
 const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
 
@@ -18,15 +20,29 @@ function truncate(address: string) {
 }
 
 export function PolicyPanel() {
+  // Local values the owner is editing. Start at reasonable placeholder
+  // defaults; the effect below overwrites them with the REAL live policy
+  // the first time it loads, so a page refresh reflects on-chain reality
+  // instead of silently showing stale hardcoded numbers (e.g. if the owner
+  // applied a higher daily cap in an earlier session and then reloaded).
   const [txCap, setTxCap] = useState(10);
   const [dailyCap, setDailyCap] = useState(20);
-  // Optimistic local view of whether the onchain policy is active. There is
-  // an active policy on the deployed vault already (set during earlier live
-  // testing), so this starts true. It's corrected once a setPolicy/revoke
-  // transaction we submitted actually confirms — see the effects below.
   const [active, setActive] = useState(true);
+  const [hasSeededFromChain, setHasSeededFromChain] = useState(false);
 
   const { address: ownerAddress, isConnected } = useAccount();
+  const { policy, refetch: refetchPolicyData } = usePolicyData();
+
+  // Seed the sliders/toggle from the real on-chain policy exactly once,
+  // the first time a read resolves — not on every poll, so it doesn't
+  // fight the owner while they're mid-drag on a slider.
+  useEffect(() => {
+    if (!policy || hasSeededFromChain) return;
+    setTxCap(Number(formatUnits(policy.maxPerTx, MUSDT_DECIMALS)));
+    setDailyCap(Number(formatUnits(policy.dailyCap, MUSDT_DECIMALS)));
+    setActive(policy.active);
+    setHasSeededFromChain(true);
+  }, [policy, hasSeededFromChain]);
 
   const {
     writeContract: writeSetPolicy,
@@ -48,13 +64,26 @@ export function PolicyPanel() {
   const { isLoading: isRevokeConfirming, isSuccess: isRevokeSuccess } =
     useWaitForTransactionReceipt({ hash: revokeHash });
 
+  // On a confirmed write, also refetch the shared policy-data query right
+  // away — usePolicyData's other consumers (StatTiles, ChainStatePanel)
+  // read the SAME cached query, so this settles their view within about a
+  // second instead of leaving them to visibly disagree with this panel for
+  // up to 5s until the next background poll (most noticeable during the
+  // demo's revoke beat, where one badge flipping before the other would
+  // look like a real inconsistency on screen).
   useEffect(() => {
-    if (isSetPolicySuccess) setActive(true);
-  }, [isSetPolicySuccess]);
+    if (isSetPolicySuccess) {
+      setActive(true);
+      refetchPolicyData();
+    }
+  }, [isSetPolicySuccess, refetchPolicyData]);
 
   useEffect(() => {
-    if (isRevokeSuccess) setActive(false);
-  }, [isRevokeSuccess]);
+    if (isRevokeSuccess) {
+      setActive(false);
+      refetchPolicyData();
+    }
+  }, [isRevokeSuccess, refetchPolicyData]);
 
   const applyBusy = isSetPolicyPending || isSetPolicyConfirming;
   const revokeBusy = isRevokePending || isRevokeConfirming;

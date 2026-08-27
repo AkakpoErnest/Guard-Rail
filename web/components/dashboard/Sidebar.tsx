@@ -1,4 +1,14 @@
+"use client";
+
+import { useBlockNumber } from "wagmi";
+
 export function Sidebar() {
+  // Real, live block number instead of the mockup's frozen placeholder —
+  // worth doing since the receipt feed right next to this panel shows real,
+  // changing block numbers; a static fake one here would visibly contradict
+  // it during the demo.
+  const { data: blockNumber } = useBlockNumber({ watch: true });
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -32,7 +42,12 @@ export function Sidebar() {
             <i className="live-dot"></i>
           </div>
           <div className="network-value">HSK Chain</div>
-          <div className="network-sub">Testnet · Block #18,420,291</div>
+          <div className="network-sub">
+            Testnet ·{" "}
+            {blockNumber !== undefined
+              ? `Block #${blockNumber.toLocaleString()}`
+              : "connecting..."}
+          </div>
         </div>
         <div className="account">
           <div className="avatar">EK</div>
