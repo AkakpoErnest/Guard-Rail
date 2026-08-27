@@ -9,6 +9,10 @@ const nextConfig = {
     // x402 payments or the Base Account connector, and installing those
     // peers just to satisfy an unused static import isn't worth the
     // extra dependency surface — so tell webpack to skip resolving them.
+    // If this starts failing again after a rainbowkit/wagmi version bump,
+    // re-check the connector graph (wagmi connectors -> @base-org/account
+    // -> @coinbase/cdp-sdk -> @x402/*) rather than assuming the regex
+    // below still matches whatever changed.
     config.plugins.push(
       new webpack.IgnorePlugin({
         resourceRegExp: /^@x402\//,
